@@ -1,3 +1,4 @@
+/*             (c) 2014 vaddr -- MIT license; see vtabs/LICENSE              */
 #include "pstree.h"
 #include <stdlib.h>
 #include <stdio.h>

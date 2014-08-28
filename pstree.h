@@ -1,3 +1,4 @@
+/*             (c) 2014 vaddr -- MIT license; see vtabs/LICENSE              */
 #ifndef PSTREE_H
 #define PSTREE_H
 
