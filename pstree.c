@@ -21,6 +21,7 @@ pstree_node_t *pstree_create(void)
         return NULL;
     }
 
+    // manually allocate the root, since pstree_do_node won't like a NULL root
     pstree_node_t *root = calloc(1, sizeof(*root));
     root->pid = 1;
 
@@ -56,6 +57,11 @@ static pstree_node_t *pstree_do_node(int pid, pstree_node_t *root)
     if (root == NULL || pid < 0)
         return NULL;
 
+    // If the node already exists, return it. It would have been created in
+    // response to seeing a child pid before the parent. 
+    // If the exec is not filled in yet, fill in the node as normal, but don't
+    // deallocate the node if reading /proc fails, otherwise the tree might
+    // have an invalid node in the middle somewhere.
     if ((rv = pstree_find(root, pid)) != NULL && rv->exec)
         return rv;
 
@@ -86,6 +92,9 @@ static pstree_node_t *pstree_do_node(int pid, pstree_node_t *root)
         readlen += n;
         readbuf = realloc(readbuf, 1024 + readlen);
     }
+
+    close(fd);
+    fd = -1;
 
     openparen = strchr(readbuf, '(');
     closeparen = strrchr(readbuf, ')');
@@ -128,6 +137,8 @@ fail:
     }
     if (readbuf)
         free(readbuf);
+    if (fd > -1)
+        close(fd);
     return NULL;
 }
 
