@@ -23,7 +23,8 @@ pstree_node_t *pstree_create(void)
 
     // manually allocate the root, since pstree_do_node won't like a NULL root
     pstree_node_t *root = calloc(1, sizeof(*root));
-    root->pid = 1;
+    root->pid = 0;
+    root->exec = calloc(1,1);
 
     struct dirent *entry;
     while ((entry = readdir(dirp)) != NULL) {
@@ -43,9 +44,7 @@ pstree_node_t *pstree_create(void)
 static pstree_node_t *pstree_do_node(int pid, pstree_node_t *root)
 {
     pstree_node_t *rv = NULL;
-    pstree_node_t *parentnode = NULL;
     int fd = -1;
-    int parentpid = -1;
     int readlen = 0;
     int rv_allocated = 0;
     char *readbuf = NULL;
@@ -112,19 +111,26 @@ static pstree_node_t *pstree_do_node(int pid, pstree_node_t *root)
     strncpy(rv->exec, openparen+1, closeparen - openparen - 1);
     rv->exec[closeparen - openparen - 1] = '\0';
 
-    errno = 0;
-    parentpid = strtol(closeparen+1, &c, 10);
-    if (parentpid < 0 || errno != 0 || *c != ' ')
-        goto fail;
+    {
+        errno = 0;
+        pstree_node_t *parentnode = NULL;
+        // ") X <pid> ..." + 4 = "<pid> ..."
+        int parentpid = strtol(closeparen+4, &c, 10);
+        if (parentpid < 0 || errno != 0 || *c != ' ')
+            goto fail;
 
-    parentnode = pstree_do_node(parentpid, root);
-    if (parentnode == NULL)
-        goto fail;
+        if (parentpid == 0 && pid != 1)
+            goto fail;
 
-    rv->parent = parentnode;
-    if (parentnode->child)
-        rv->sibling = parentnode->child;
-    parentnode->child = rv;
+        parentnode = pstree_do_node(parentpid, root);
+        if (parentnode == NULL)
+            goto fail;
+
+        rv->parent = parentnode;
+        if (parentnode->child)
+            rv->sibling = parentnode->child;
+        parentnode->child = rv;
+    }
 
     free(readbuf);
     return rv;
