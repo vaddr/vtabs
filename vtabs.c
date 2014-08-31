@@ -8,6 +8,8 @@
 #include <string.h>
 #include <stdarg.h>
 
+#define INT_UNSET 0x80000000
+
 static char *my_name = NULL;
 
 static void usage(const char *fmt, ...) 
@@ -68,11 +70,16 @@ static void usage(const char *fmt, ...)
 static Display *dpy  = NULL;
 static Window   root = None;
 
-static const char *rcfile = "~/config/vtabsrc";
+static char *rcfile = "~/config/vtabsrc";
 
 // These are externed elsewhere
 int verbose   = 0;
 int no_action = 0;
+
+// For option parsing
+static int get_flag(char ***args, char flag);
+static int get_int_flag(char ***args, char flag, int *val);
+static int get_str_flag(char ***args, char flag, char **val);
 
 static char** do_add(char **args);
 static char** do_remove(char **args);
@@ -97,26 +104,21 @@ int main(int argc, char **argv)
 
     // Process global options
     char **args = argv + 1;
-    for (; *args; args++) {
+    while (*args) {
         if (args[0][0] != '-')
             break;
-        
-        if (!args[0][1] || args[0][2])
-            usage("Unrecognized option: %s\n", args[0]);
 
-        switch (args[0][1]) {
-            case 'v': verbose = 1; break;
-            case 'p': verbose = 1; no_action = 1; break;
-            case 'f': {
-                if (!args[1])
-                    usage("-f option requires argument\n");
-                rcfile = args[1];
-                // When the rc file is explicitly specified, throw an error
-                // if it doesn't exist. We don't do this for the default.
-                if (access(rcfile, F_OK) == -1)
-                    usage("Specified config doesn't exist: %s\n", rcfile);
-            } break;
-            default: usage("Unrecognized option: %s\n", args[0]);
+        if (get_flag(&args, 'v')) {
+            verbose = 1;
+        } else if (get_flag(&args, 'p')) {
+            verbose = no_action = 1;
+        } else if (get_str_flag(&args, 'f', &rcfile)) {
+            // When the rc file is explicitly specified, throw an error
+            // if it doesn't exist. We don't do this for the default.
+            if (access(rcfile, F_OK) == -1)
+                usage("Specified config doesn't exist: %s\n", rcfile);
+        } else {
+            usage("Unrecognized option: %s\n", args[0]);
         }
     }
 
@@ -136,7 +138,7 @@ int main(int argc, char **argv)
     if (!args[0])
         usage("No commands specified.\n");
 
-    while (args[0]) {
+    while (*args) {
         if (strcmp(args[0], "add") == 0) {
             args = do_add(args+1);
         } else if (strcmp(args[0], "remove") == 0) {
@@ -158,33 +160,174 @@ int main(int argc, char **argv)
     return 0;
 }
 
+//////////////////////////////// Commands /////////////////////////////////////
+
 static char** do_add(char **args)
 {
+    int   index = INT_UNSET;
+    char *name  = NULL;
+
+    while (*args) {
+        if (args[0][0] != '-') break;
+        if (get_int_flag(&args, 'i', &index)) {
+        } else if (get_str_flag(&args, 'n', &name)) {
+        } else usage("Unrecognized option to add: %s\n", args[0]);
+    }
+
+    // TODO
+
     return args;
 }
 
 static char** do_remove(char **args)
 {
+    int index    = INT_UNSET;
+    int switchto = INT_UNSET;
+    int altdest  = INT_UNSET;
+    int close    = 0;
+
+    while (*args) {
+        if (args[0][0] != '-') break;
+        if (get_int_flag(&args, 'i', &index)) {
+        } else if (get_int_flag(&args, 's', &switchto)) {
+        } else if (get_int_flag(&args, 'd', &altdest)) {
+        } else if (get_flag(&args, 'c')) {
+            close = 1;
+        } else usage("Unrecognized option to remove: %s\n", args[0]);
+    }
+    
+    // TODO
+
     return args;
 }
 
 static char** do_rename(char **args)
 {
+    int   index = INT_UNSET;
+    char *name  = NULL;
+
+    while (*args) {
+        if (args[0][0] != '-') break;
+        if (get_int_flag(&args, 'i', &index)) {
+        } else if (get_str_flag(&args, 'n', &name)) {
+        } else usage("Unrecognized option to rename: %s\n", args[0]);
+    }
+
+    // TODO
+
     return args;
 }
 
 static char** do_switch(char **args)
 {
+    int index  = INT_UNSET;
+    int rotate = INT_UNSET;
+    int delta  = INT_UNSET;
+    
+    while (*args) {
+        if (args[0][0] != '-') break;
+        if (get_int_flag(&args, 'i', &index)) {
+        } else if (get_int_flag(&args, 'r', &rotate)) {
+        } else if (get_int_flag(&args, 'd', &delta)) {
+        } else usage("Unrecognized option to switch: %s\n", args[0]);
+    }
+
+    // exactly one of index, rotate, delta must be specified
+    if (index != INT_UNSET) {
+        if (rotate != INT_UNSET || delta != INT_UNSET)
+            goto fail;
+
+    } else if (rotate != INT_UNSET) {
+        if (delta != INT_UNSET)
+            goto fail;
+
+    } else if (delta != INT_UNSET) {
+
+    } else goto fail;
+
+    // TODO
+
     return args;
+
+fail:
+    usage("Exactly one of -i, -r, -d must be passed to the switch command\n");
+    return NULL;
 }
 
 static char** do_move(char **args)
 {
+    int src = INT_UNSET;
+    int dst = INT_UNSET;
+
+    while (*args) {
+        if (args[0][0] != '-') break;
+        if (get_int_flag(&args, 's', &src)) {
+        } else if (get_int_flag(&args, 'd', &dst)) {
+        } else usage("Unrecognized option to move: %s\n", args[0]);
+    }
+
+    if (dst == INT_UNSET)
+        usage("The -d option is required for the move command\n");
+
+    // TODO
+    
     return args;
 }
 
 static char** do_clear(char **args)
 {
+    int index = INT_UNSET;
+    
+    while (*args) {
+        if (args[0][0] != '-') break;
+        if (get_int_flag(&args, 'i', &index)) {
+        } else usage("Unrecognized option to clear: %s\n", args[0]);
+    }
+
+    // TODO
+
     return args;
 }
 
+//////////////////////////// Arg parsing //////////////////////////////////////
+
+static int get_flag(char ***args, char flag)
+{
+    if ((**args)[0] == '-' && (**args)[1] == flag && (**args)[2] == '\0') {
+        (*args)++;
+        return 1;
+    }
+    return 0;
+}
+
+static int get_str_flag(char ***args, char flag, char **val)
+{
+    if ((**args)[0] != '-' || (**args)[1] != flag)
+        return 0;
+    
+    if ((**args)[2] != '\0') {
+        *val = &((**args)[2]);
+        (*args)++;
+    } else if ((*args)[1] != NULL) {
+        (*args)++;
+        *val = **args;
+        (*args)++;
+    } else {
+        usage("Missing argument to -%c\n", flag);
+    }
+
+    return 1;
+}
+
+static int get_int_flag(char ***args, char flag, int *val)
+{
+    char *str, *end;
+    if (!get_str_flag(args, flag, &str))
+        return 0;
+    
+    *val = strtol(str, &end, 10);
+    if (*end != '\0')
+        usage("Argument %s to -%c is not an integer\n", str, flag);
+
+    return 1;
+}
