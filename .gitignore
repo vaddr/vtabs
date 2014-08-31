@@ -21,3 +21,9 @@
 *.i*86
 *.x86_64
 *.hex
+
+# Core dump
+core
+
+# Vim temp files
+.*.swp

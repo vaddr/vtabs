@@ -63,7 +63,6 @@ int x11_init(Display *_dpy, Window _root)
     XSelectInput(dpy, root, SubstructureNotifyMask |
                             StructureNotifyMask    |
                             PropertyChangeMask);
-    XSync();
 
     // Query for the initial state.
     num_desktops   = x11_get_u32_prop(root, _NET_NUMBER_OF_DESKTOPS);
