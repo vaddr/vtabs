@@ -29,6 +29,7 @@ static void usage(const char *fmt, ...)
 "    Adds a new desktop.\n"                                                    \
 "    -i: insert the new desktop at the given index (default: end of list)\n"   \
 "    -n: specifies a name for the new desktop (default: empty string)\n"       \
+"    -c: stay on current desktop (default is to switch to the new one)\n"      \
 "\n"                                                                           \
 "  remove [-i <index>] [-c] [-s <index>] [-d <index>]\n"                       \
 "    Removes a desktop and moves (or closes) orphaned windows.\n"              \
@@ -71,6 +72,13 @@ static Display *dpy  = NULL;
 static Window   root = None;
 
 static char *rcfile = "~/config/vtabsrc";
+
+// TODO: might be better to error out on invalid indices
+static int normalize(int index) {
+    if (index < 0 || index >= x11_num_desktops)
+        return x11_num_desktops - 1;
+    return index;
+}
 
 // These are externed elsewhere
 int verbose   = 0;
@@ -139,6 +147,14 @@ int main(int argc, char **argv)
         usage("No commands specified.\n");
 
     while (*args) {
+
+        // Prior to each command, handle pending events.
+        while (XPending(dpy)) {
+            XEvent ev;
+            XNextEvent(dpy, &ev);
+            x11_handle_event(&ev);
+        }
+
         if (strcmp(args[0], "add") == 0) {
             args = do_add(args+1);
         } else if (strcmp(args[0], "remove") == 0) {
@@ -155,6 +171,9 @@ int main(int argc, char **argv)
             usage("Unrecognized command: %s\n", args[0]);
         }
 
+        // Sync after each command
+        XSync(dpy, 0);
+
     }
 
     return 0;
@@ -165,16 +184,49 @@ int main(int argc, char **argv)
 static char** do_add(char **args)
 {
     int   index = INT_UNSET;
+    int   stay  = 0;
     char *name  = NULL;
 
     while (*args) {
         if (args[0][0] != '-') break;
         if (get_int_flag(&args, 'i', &index)) {
         } else if (get_str_flag(&args, 'n', &name)) {
+        } else if (get_flag(&args, 'c')) {
+            stay = 1;
         } else usage("Unrecognized option to add: %s\n", args[0]);
     }
 
-    // TODO
+    // Make sure index is valid
+    if (index < 0 || index > x11_num_desktops)
+        index = x11_num_desktops;
+
+    // Increase the number of desktops by 1
+    if (!x11_set_num_desktops(x11_num_desktops+1))
+        exit(1);
+
+    if (index != x11_num_desktops - 1) {
+        // Hard case: new desktop goes in the middle, so we need to rename 
+        // all the desktops that were offset and move their windows.
+        for (int i = x11_num_desktops - 1; i > index; i--) {
+            if (!x11_set_desktop_name(i, x11_get_desktop_name(i-1)))
+                exit(1);
+            if (!x11_move_windows(i-1, i))
+                exit(1);
+        }
+    }
+    
+    x11_set_desktop_name(index, name);
+    
+    // To stay on the current desktop will actually require a switch if the
+    // desktop being added is earlier in the list.
+    if (stay && x11_active_desktop >= index) {
+        stay = 0;
+        index = x11_active_desktop + 1;
+    }
+
+    // Switch to the new desktop (or to stay on the current desktop)
+    if (!stay && !x11_set_active_desktop(index))
+        exit(1);
 
     return args;
 }
@@ -183,20 +235,64 @@ static char** do_remove(char **args)
 {
     int index    = INT_UNSET;
     int switchto = INT_UNSET;
-    int altdest  = INT_UNSET;
+    int dest     = INT_UNSET;
     int close    = 0;
 
     while (*args) {
         if (args[0][0] != '-') break;
         if (get_int_flag(&args, 'i', &index)) {
         } else if (get_int_flag(&args, 's', &switchto)) {
-        } else if (get_int_flag(&args, 'd', &altdest)) {
+        } else if (get_int_flag(&args, 'd', &dest)) {
         } else if (get_flag(&args, 'c')) {
             close = 1;
         } else usage("Unrecognized option to remove: %s\n", args[0]);
     }
     
-    // TODO
+    if (x11_num_desktops == 1) {
+        fprintf(stderr, "Can't remove the only desktop\n");
+        exit(1);
+    }
+
+    // TODO: respect close flag
+
+
+    // Make sure index is valid.
+    if (index == INT_UNSET)
+        index = x11_active_desktop;
+    if (index < 0 || index >= x11_num_desktops)
+        index = x11_num_desktops - 1;
+    
+    // Finalize the desktop to switch to.
+    // The index is pre-removal, so it may need to be decremented.
+    if (switchto == INT_UNSET)
+        switchto = x11_active_desktop;
+    if (switchto < 0 || switchto >= x11_num_desktops)
+        switchto = x11_num_desktops - 1;
+    if (switchto > index)
+        switchto--;
+
+    // Finalize the desktop to move orphans to.
+    if (dest == INT_UNSET)
+        dest = switchto;
+    if (dest < 0 || dest >= x11_num_desktops - 1)
+        dest = x11_num_desktops - 2;
+
+    if (index == x11_num_desktops - 1) {
+        // Simple case: remove last desktop
+        if (!x11_move_windows(index, dest))
+            exit(1);
+        if (!x11_set_num_desktops(x11_num_desktops-1))
+            exit(1);
+    } else {
+        // Hard case: remove from middle, so we need to shift and rename 
+        // desktops that came after. 
+
+        
+
+    }
+
+    if (!x11_set_active_desktop(switchto))
+        exit(1);
 
     return args;
 }
@@ -213,7 +309,9 @@ static char** do_rename(char **args)
         } else usage("Unrecognized option to rename: %s\n", args[0]);
     }
 
-    // TODO
+    index = normalize(index);
+    if (!x11_set_desktop_name(index, name))
+        exit(1);
 
     return args;
 }
@@ -237,15 +335,30 @@ static char** do_switch(char **args)
         if (rotate != INT_UNSET || delta != INT_UNSET)
             goto fail;
 
+        index = normalize(index);
+
     } else if (rotate != INT_UNSET) {
         if (delta != INT_UNSET)
             goto fail;
 
+        index = x11_active_desktop + rotate;
+        if (index < 0)
+            index += x11_num_desktops * -(index / x11_num_desktops - 1);
+        index %= x11_num_desktops;
+
+
     } else if (delta != INT_UNSET) {
+        
+        index = x11_active_desktop + delta;
+        if (index < 0)
+            index = 0;
+        if (index >= x11_num_desktops)
+            index = x11_num_desktops - 1;
 
     } else goto fail;
 
-    // TODO
+    if (!x11_set_active_desktop(index))
+        exit(1);
 
     return args;
 
@@ -269,7 +382,14 @@ static char** do_move(char **args)
     if (dst == INT_UNSET)
         usage("The -d option is required for the move command\n");
 
-    // TODO
+    if (src == INT_UNSET)
+        src = x11_active_desktop;
+
+    dst = normalize(dst);
+    src = normalize(src);
+
+    if (!x11_move_windows(src, dst))
+        exit(1);
     
     return args;
 }
